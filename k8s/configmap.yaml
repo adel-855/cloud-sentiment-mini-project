@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  namespace: sentiment
+  labels:
+    app.kubernetes.io/name: api
+data:
+  MODEL_VERSION: v1
+  MODELS_DIR: /app/models
+  # Pannes simulées : passer à 0.3 / 800 pour tester les alertes Grafana.
+  FAULT_ERROR_RATE: "0"
+  FAULT_LATENCY_MS: "0"

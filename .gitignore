@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.pyc
 .venv/
@@ -5,3 +6,11 @@ venv/
 .pytest_cache/
 .ruff_cache/
 *.db
+
+# Identifiants locaux (le Secret Kubernetes est généré depuis k8s/.env)
+.env
+k8s/.env
+
+# Divers
+.DS_Store
+*.log

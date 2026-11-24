@@ -1,232 +1,274 @@
-# API d'analyse de sentiment
+# Mise en production d'une API de sentiment
 
-> Dépôt de départ du mini-projet **« Mettre en production une API de machine learning »**
-> Module *Big data et architecture d'externalisation*, Master IA & Data Computing, INSA Hauts-de-France / UPHF.
+API FastAPI d'analyse de sentiment (avis de films en français) conteneurisée, testée et
+publiée par GitHub Actions, déployée sur Kubernetes et supervisée dans Grafana Cloud.
 
-L'équipe data de votre entreprise a développé une petite application : on lui donne un **avis de film en français**, elle répond s'il est **positif** ou **négatif**, avec un **score de confiance**.
+**Dépôt :** <https://github.com/adel-855/cloud-sentiment-mini-project>
 
 ```
-« Un film magnifique, je le recommande ! »   →   positif (confiance 0,97)
+« Un film magnifique, je le recommande ! »  →  {"label": "positif", "confidence": 0.97, "model_version": "v1"}
 ```
-
-L'application fonctionne sur le PC du data scientist. Mais elle **n'est pas prête pour la production** : pas de conteneur, pas de pipeline, pas de déploiement, pas de supervision.
-
-**Votre mission, en tant qu'équipe cloud : la mettre en production.** Vous n'avez pas à modifier l'application ni à entraîner le modèle.
-
----
-
-## Sommaire
-
-1. [Les 5 étapes du projet](#1-les-5-étapes-du-projet)
-2. [Récupérer le dépôt pour votre groupe](#2-récupérer-le-dépôt-pour-votre-groupe)
-3. [Comprendre l'application](#3-comprendre-lapplication)
-4. [Lancer l'application sur votre PC](#4-lancer-lapplication-sur-votre-pc)
-5. [Tester l'application](#5-tester-lapplication)
-6. [Configurer l'application](#6-configurer-lapplication)
-7. [Référence : routes et métriques](#7-référence--routes-et-métriques)
-8. [Problèmes fréquents](#8-problèmes-fréquents)
-9. [Petit glossaire](#9-petit-glossaire)
-
----
-
-## 1. Les 5 étapes du projet
-
-| Étape | Ce que vous faites | Outil principal |
-|---|---|---|
-| 1. Conteneuriser | Mettre l'application et sa base de données dans des conteneurs | Docker |
-| 2. Livrer en continu | Tester et publier l'image automatiquement à chaque modification | GitHub Actions |
-| 3. Déployer | Faire tourner l'application sur un cluster | Kubernetes intégré à Docker Desktop |
-| 4. Superviser | Suivre des indicateurs et recevoir une alerte en cas de panne | Grafana Cloud |
-| 5. Viser la production | Proposer une architecture cloud et estimer son coût | Note d'architecture |
-
-Les attendus détaillés de chaque étape sont dans **le sujet distribué en cours**. Les dates et la date limite sont données en cours.
-
-## 2. Récupérer le dépôt pour votre groupe
-
-Ce dépôt est un **modèle** (template). Chaque groupe en crée sa propre copie.
-
-**Une seule personne du groupe :**
-
-1. En haut de cette page, cliquez sur **Use this template**, puis **Create a new repository**.
-2. Choisissez votre compte comme propriétaire, donnez un nom (par exemple `tp-cloud-groupe-3`) et cochez **Public** : GitHub Actions et le stockage des images y sont gratuits et sans limite.
-3. Dans le nouveau dépôt : **Settings › Collaborators › Add people**, et ajoutez les autres membres du groupe.
-
-**Puis chaque membre, dans un terminal :**
-
-```bash
-git clone https://github.com/VOTRE-COMPTE/VOTRE-DEPOT.git
-cd VOTRE-DEPOT
-```
-
-> **Règle d'or :** le dépôt est public : aucun mot de passe ni jeton dedans, et pas de code de votre entreprise.
-
-## 3. Comprendre l'application
 
 ```mermaid
 flowchart LR
-    U["Navigateur ou curl"] -->|"POST /predict"| A["API FastAPI"]
-    A -->|"charge au démarrage"| M[("Modèle v1 ou v2")]
-    A -->|"enregistre chaque prédiction"| D[("Base de données<br>SQLite en local<br>PostgreSQL en production")]
-    S["Outil de supervision"] -->|"lit GET /metrics"| A
+    DEV["git push / PR"] --> CI["GitHub Actions<br/>ruff · pytest · build · trivy"]
+    CI -->|":sha · :latest · :v1.0.0"| GHCR[("GHCR")]
+    GHCR --> API["Deployment api<br/>2 replicas · HPA"]
+    API --> DB[("PostgreSQL<br/>PVC")]
+    ALLOY["Alloy"] -->|"/metrics"| API
+    ALLOY --> GC["Grafana Cloud<br/>dashboard + alertes"]
+    USER["Navigateur / curl"] --> SVC["Service api"]
+    SVC --> API
 ```
 
-| Dossier ou fichier | Contenu |
+| Dossier | Contenu |
 |---|---|
-| `app/main.py` | Les routes de l'API |
-| `app/model.py` | Le chargement du modèle et la prédiction |
-| `app/db.py` | L'historique des prédictions en base de données |
-| `app/metrics.py` | Les métriques exposées pour la supervision |
-| `app/config.py` | La configuration, lue dans les variables d'environnement |
-| `app/static/` | La page web de test |
-| `models/` | Les deux modèles : `v1` (précision 89,5 %) et `v2` (précision 94,3 %) |
-| `tests/` | Les tests automatisés |
-| `training/` | Le script qui a entraîné les modèles. Vous n'en avez pas besoin. |
-| `requirements.txt` | Les bibliothèques Python nécessaires |
-| `requirements-dev.txt` | Les mêmes, plus les outils de test et de vérification |
-
-## 4. Lancer l'application sur votre PC
-
-C'est le premier réflexe avant de conteneuriser : **comprendre comment l'application démarre**. Il vous faut **Python 3.12**.
-
-Toutes les commandes se lancent **à la racine du dépôt** (le dossier qui contient ce README).
-
-**Étape 1 : créer un environnement virtuel**, une installation de Python propre à ce projet.
-
-```bash
-python -m venv .venv
-```
-
-Sous Linux ou macOS, utilisez `python3` à la place de `python`.
-
-**Étape 2 : l'activer.** La ligne de votre terminal commence alors par `(.venv)`.
-
-| Système | Commande |
-|---|---|
-| Linux, macOS | `source .venv/bin/activate` |
-| Windows, PowerShell | `.venv\Scripts\Activate.ps1` |
-| Windows, invite de commandes | `.venv\Scripts\activate.bat` |
-
-**Étape 3 : installer les bibliothèques.**
-
-```bash
-pip install -r requirements-dev.txt
-```
-
-**Étape 4 : lancer l'API.**
-
-```bash
-uvicorn app.main:app --reload
-```
-
-L'API tourne tant que le terminal reste ouvert. `Ctrl+C` pour l'arrêter.
-
-## 5. Tester l'application
-
-- **La page de test :** ouvrez http://localhost:8000, tapez un avis, cliquez.
-- **La documentation interactive :** ouvrez http://localhost:8000/docs. Chaque route peut y être essayée avec le bouton **Try it out**.
-- **En ligne de commande**, sous Linux ou macOS :
-
-  ```bash
-  curl -X POST http://localhost:8000/predict \
-    -H "Content-Type: application/json" \
-    -d '{"text": "Un film magnifique, je le recommande !"}'
-  ```
-
-- **En ligne de commande**, sous Windows PowerShell :
-
-  ```powershell
-  Invoke-RestMethod -Method Post -Uri http://localhost:8000/predict -ContentType "application/json" -Body '{"text": "Un film magnifique, je le recommande !"}'
-  ```
-
-Réponse attendue :
-
-```json
-{"label": "positif", "confidence": 0.97, "model_version": "v1"}
-```
-
-**Les tests automatisés et la vérification du code** (ce que votre pipeline lancera à l'étape 2) :
-
-```bash
-pytest                  # les tests
-ruff check .            # les erreurs et le style du code
-ruff format --check .   # la mise en forme
-```
-
-## 6. Configurer l'application
-
-L'application ne contient **aucun réglage en dur** : tout passe par des **variables d'environnement**. C'est ce qui permet d'utiliser la même image en test et en production.
-
-| Variable | Par défaut | À quoi elle sert |
-|---|---|---|
-| `MODEL_VERSION` | `v1` | Le modèle à charger : `v1` ou `v2` |
-| `MODELS_DIR` | `models` | Le dossier qui contient les modèles |
-| `DATABASE_URL` | `sqlite:///./predictions.db` | L'adresse de la base de données |
-| `FAULT_ERROR_RATE` | `0` | Provoque des erreurs : `0.3` = 30 % des prédictions en erreur |
-| `FAULT_LATENCY_MS` | `0` | Ralentit chaque prédiction, en millisecondes : `800` = 0,8 seconde |
-
-**Base de données.** Sans configuration, l'application crée un petit fichier `predictions.db` (SQLite) : parfait pour tester sur votre PC. En production, elle doit utiliser **PostgreSQL**, avec une adresse de cette forme :
-
-```
-postgresql://utilisateur:motdepasse@nom-du-serveur:5432/sentiment
-```
-
-La table est créée automatiquement au démarrage.
-
-**Pannes simulées.** `FAULT_ERROR_RATE` et `FAULT_LATENCY_MS` servent à l'étape 4 : vous provoquez une panne et vérifiez que votre supervision la voit et que votre alerte se déclenche.
-
-## 7. Référence : routes et métriques
-
-| Route | Ce qu'elle fait |
-|---|---|
-| `POST /predict` | Analyse un avis. Corps : `{"text": "..."}`, de 3 à 5 000 caractères. |
-| `GET /history?limit=10` | Les dernières prédictions enregistrées |
-| `GET /health` | Répond `200` si l'application **et** la base fonctionnent, `503` sinon |
-| `GET /health/live` | Répond `200` tant que l'application tourne, sans regarder la base |
-| `GET /metrics` | Les métriques, au format Prometheus |
-| `GET /` | La page web de test |
-
-Les deux routes `/health` serviront à Kubernetes, à l'étape 3. Réfléchissez à laquelle utiliser pour quoi.
-
-| Métrique sur `/metrics` | Type | Ce qu'elle compte |
-|---|---|---|
-| `http_requests_total` | compteur | Les requêtes, par route et code de réponse |
-| `http_request_duration_seconds` | histogramme | Le temps de réponse, par route |
-| `predictions_total` | compteur | Les prédictions, par version du modèle et par résultat |
-| `prediction_confidence` | histogramme | La confiance des prédictions, par version du modèle |
-| `model_info` | jauge | Le modèle chargé, avec sa précision |
-
-## 8. Problèmes fréquents
-
-**`python` n'est pas reconnu, ou ce n'est pas la version 3.12.**
-Vérifiez avec `python --version` (ou `python3 --version`). Sous Windows, cochez « Add Python to PATH » à l'installation.
-
-**PowerShell refuse d'activer l'environnement virtuel.**
-Utilisez l'invite de commandes (`cmd`) et `.venv\Scripts\activate.bat` à la place.
-
-**`ModuleNotFoundError: No module named 'app'`**
-Vous n'êtes pas à la racine du dépôt. Revenez dans le dossier qui contient ce README.
-
-**`Address already in use` ou le port 8000 est occupé.**
-Une autre application l'utilise. Lancez sur un autre port : `uvicorn app.main:app --reload --port 8001`.
-
-**L'API répond `503` sur `/health`.**
-Elle n'arrive pas à joindre la base de données. Vérifiez `DATABASE_URL`, et que la base est bien démarrée.
-
-**Je suis bloqué depuis plus de 15 minutes.**
-Relisez le message d'erreur en entier, cherchez-le, demandez à une IA… puis demandez en cours.
-
-## 9. Petit glossaire
-
-| Mot | En deux lignes |
-|---|---|
-| **API** | Une application qu'on interroge par des requêtes HTTP, plutôt qu'avec une interface graphique. |
-| **Route** | Une adresse de l'API, comme `/predict`, qui fait une action précise. |
-| **Environnement virtuel** | Une installation de Python isolée, pour que les bibliothèques d'un projet ne gênent pas les autres. |
-| **Variable d'environnement** | Un réglage donné à l'application au démarrage, sans modifier son code. |
-| **Conteneur** | L'application et tout ce dont elle a besoin, empaquetés pour tourner partout de la même façon. |
-| **Pipeline** | Une suite d'étapes automatiques (tests, construction, publication) lancée à chaque modification. |
-| **Métrique** | Un nombre qui évolue dans le temps : requêtes par seconde, temps de réponse… |
+| `app/` | code de l'API (fourni, non modifié) |
+| `models/` | modèles v1 (89,5 %) et v2 (94,3 %) |
+| `tests/` | tests pytest |
+| `Dockerfile`, `compose.yaml` | étape 1 — conteneurisation |
+| `.github/workflows/ci.yml` | étape 2 — lint, tests, image, scan Trivy, push GHCR |
+| `k8s/` | étape 3 — Deployment, Service, ConfigMap, Secret, PostgreSQL + PVC, HPA, PDB |
+| `observability/` | étape 4 — agent Alloy, dashboard JSON, règles d'alerte |
+| `docs/ARCHITECTURE.md` | étape 5 — note d'architecture (cible cloud + coûts) |
+| `docs/RAPPORT.md` | plan du rapport à rendre, avec les preuves à capturer |
+| `.vscode/` | extensions recommandées, debug, tâches |
 
 ---
 
-*Les modèles ont été entraînés sur le jeu de données [Allociné](https://huggingface.co/datasets/tblard/allocine) (avis de films en français). Le script d'entraînement est dans `training/`.*
+## 1. Prérequis
+
+| Outil | Version testée | Vérifier |
+|---|---|---|
+| Docker + Docker Desktop (Kubernetes activé) | 29.x | `docker version`, `kubectl config get-contexts` |
+| Python | 3.12 | `python3 --version` |
+| Git / GitHub CLI | — | `git --version`, `gh auth status` |
+| Compte Grafana Cloud | offre gratuite, région UE | — |
+
+Activer Kubernetes : Docker Desktop → **Settings › Kubernetes › Enable Kubernetes**, puis
+`kubectl config use-context docker-desktop`.
+
+## 2. Démarrage rapide (from scratch)
+
+```bash
+git clone https://github.com/adel-855/cloud-sentiment-mini-project.git
+cd cloud-sentiment-mini-project
+
+# Développement local (optionnel)
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+ruff check . && ruff format --check . && pytest -q
+uvicorn app.main:app --reload            # http://localhost:8000
+
+# Étape 1 : conteneurs + base
+cp .env.example .env
+docker compose up --build -d
+curl -s localhost:8000/health
+
+# Étape 3 : Kubernetes
+cp k8s/.env.example k8s/.env             # éditer les identifiants
+kubectl apply -k k8s/
+kubectl -n sentiment get pods -w
+curl -s localhost/health                 # Service LoadBalancer sur le port 80
+```
+
+Le reste (`make help`) :
+
+```bash
+make venv test lint build compose-up compose-down k8s-up k8s-status fault-latency fault-errors fault-off
+```
+
+---
+
+## 3. Étape 1 — Conteneurisation
+
+- Build **multi-stage** : `python:3.12` pour installer, `python:3.12-slim` pour exécuter.
+- Image finale : **647 Mo** (< 800 Mo exigés) — `docker images sentiment-api:local`.
+- Exécution **non-root** (`uid=10001`), `HEALTHCHECK` sur `/health/live`.
+- `compose.yaml` : API + PostgreSQL 16, volume `pgdata`, `healthcheck`, `depends_on: service_healthy`.
+
+```bash
+docker build -t sentiment-api:local .
+docker compose up --build -d
+curl -X POST localhost:8000/predict -H 'Content-Type: application/json' \
+  -d '{"text": "Un film magnifique, je le recommande !"}'
+docker compose exec api id              # uid=10001(app) gid=10001(app)
+```
+
+Changer de modèle sans reconstruire : `MODEL_VERSION=v2 docker compose up -d api`.
+
+## 4. Étape 2 — CI/CD (GitHub Actions)
+
+`.github/workflows/ci.yml`, déclenché sur chaque push et pull request vers `main` :
+
+| Job | Contenu |
+|---|---|
+| `lint` | `ruff check .` + `ruff format --check .` |
+| `test` | `pytest -q` (Python 3.12) |
+| `docker` | build BuildKit (cache `gha`), push **GHCR**, tags `sha` + `semver` + `latest`, scan **Trivy** bloquant sur `CRITICAL` |
+
+Sur une PR : build sans push (validation du Dockerfile). Sur `main` : image poussée dans
+`ghcr.io/adel-855/cloud-sentiment-mini-project`.
+
+**Première image :** le package GHCR est privé par défaut. Le rendre public une fois :
+GitHub → *Packages* → package → **Package settings › Change visibility › Public**.
+Sinon, créer un secret de pull (voir Dépannage).
+
+**Protéger `main`** (Settings › Branches › Add branch protection rule) :
+
+- *Require a pull request before merging*
+- *Require status checks to pass* → `Lint (ruff)`, `Tests (pytest)`
+- *Do not allow bypassing the above settings*
+
+Publier une version : `git tag v1.0.0 && git push origin v1.0.0` → image taguée `1.0.0`.
+
+## 5. Étape 3 — Kubernetes
+
+```bash
+cp k8s/.env.example k8s/.env    # identifiants PostgreSQL (fichier ignoré par Git)
+kubectl apply -k k8s/           # kustomize génère le Secret depuis k8s/.env
+kubectl -n sentiment get deploy,pods,svc,hpa,pvc
+```
+
+| Objet | Rôle |
+|---|---|
+| `Deployment/api` | 2 replicas, `maxUnavailable: 0`, probes, requests/limits, conteneur durci |
+| `Service/api` | `LoadBalancer` port 80 → 8000 (`http://localhost` sur Docker Desktop) |
+| `ConfigMap/api-config` | `MODEL_VERSION`, `MODELS_DIR`, `FAULT_ERROR_RATE`, `FAULT_LATENCY_MS` |
+| `Secret/postgres-credentials` | généré depuis `k8s/.env`, jamais versionné |
+| `Deployment/db` + `PVC/postgres-data` | PostgreSQL 16, volume 1 Gi, stratégie `Recreate` |
+| `HPA/api` | 2 → 5 pods à 60 % CPU |
+| `PDB/api` | `minAvailable: 1` |
+
+**Probes — le choix expliqué :** *readiness* sur `/health` car un pod qui ne joint pas la
+base ne doit pas recevoir de trafic ; *liveness* sur `/health/live` car une base
+indisponible ne doit pas faire redémarrer l'application en boucle (cela ne ferait
+qu'aggraver la panne). Le `startupProbe` couvre le chargement du modèle.
+
+Vérifier la continuité de service :
+
+```bash
+while true; do curl -s -o /dev/null -w '%{http_code}\n' localhost/health; sleep 0.3; done &
+kubectl -n sentiment delete pod -l app.kubernetes.io/name=api
+# que des 200 : le second pod répond pendant le redémarrage
+```
+
+Déployer une nouvelle image : `kubectl -n sentiment set image deploy/api api=<image>:<sha>`.
+Rollback : `kubectl -n sentiment rollout undo deploy/api`.
+
+## 6. Étape 4 — Observabilité (Grafana Cloud + Alloy)
+
+1. Créer un compte Grafana Cloud (région UE) et une instance **Prometheus**.
+2. Récupérer l'URL *remote_write*, l'utilisateur (instance ID) et créer un token avec le
+   droit `metrics:write`.
+3. Créer le Secret dans le cluster (jamais dans Git) :
+
+   ```bash
+   kubectl -n sentiment create secret generic grafana-cloud \
+     --from-literal=GRAFANA_REMOTE_WRITE_URL='https://prometheus-prod-XX-XXXX.grafana.net/api/prom/push' \
+     --from-literal=GRAFANA_USERNAME='123456' \
+     --from-literal=GRAFANA_TOKEN='glc_...'
+   ```
+
+4. Déployer l'agent :
+
+   ```bash
+   kubectl apply -f observability/alloy.yaml
+   kubectl -n sentiment logs deploy/alloy --tail=50
+   ```
+
+   `config.alloy` découvre les pods `app.kubernetes.io/name=api`, scrape `/metrics`
+   toutes les 15 s, scrape le kubelet (cAdvisor) pour le CPU/RAM des conteneurs, et fait
+   un `remote_write` vers Grafana Cloud.
+
+5. Importer `observability/dashboard.json` (Dashboards › New › Import) puis choisir le
+   datasource Prometheus. Le dashboard couvre les 3 niveaux :
+   **Technique** (p95, erreurs, disponibilité, pods prêts, CPU, RAM),
+   **ML** (confiance moyenne, versions, distribution),
+   **Métier** (prédictions/s, part d'avis positifs, trafic par code HTTP).
+6. Créer les alertes de `observability/alerts.yaml` (Alerting › Alert rules), en adaptant
+   `datasourceUid` : p95 > 500 ms (5 min), erreurs 5xx > 5 % (5 min), disponibilité < 99 %
+   sur 1 h.
+
+**Déclencher une alerte :**
+
+```bash
+make fault-latency     # FAULT_LATENCY_MS=800
+make fault-errors      # FAULT_ERROR_RATE=0.3
+make fault-off
+kubectl -n sentiment get hpa -w        # observer l'autoscaling pendant la charge
+```
+
+## 7. Étape 5 — Note d'architecture
+
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) : schéma, cible **GKE Autopilot**
+(`europe-west1`), estimation **~82 $/mois** détaillée, alternatives (AKS, EKS, Cloud Run),
+limites et feuille de route. Le plan du rapport avec les preuves à capturer est dans
+[`docs/RAPPORT.md`](docs/RAPPORT.md).
+
+## 8. Configuration de l'application
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `MODEL_VERSION` | `v1` | modèle chargé (`v1` ou `v2`) |
+| `MODELS_DIR` | `models` | dossier des modèles |
+| `DATABASE_URL` | `sqlite:///./predictions.db` | base ; PostgreSQL en production |
+| `FAULT_ERROR_RATE` | `0` | part de prédictions en erreur (0.3 = 30 %) |
+| `FAULT_LATENCY_MS` | `0` | latence artificielle par prédiction |
+
+| Route | Rôle |
+|---|---|
+| `POST /predict` | `{"text": "..."}` → label, confiance, version |
+| `GET /history?limit=10` | dernières prédictions |
+| `GET /health` | 200 si API **et** base OK, 503 sinon |
+| `GET /health/live` | 200 tant que le processus tourne |
+| `GET /metrics` | métriques Prometheus |
+| `GET /` | page web de test |
+
+## 9. VS Code
+
+Les extensions sont déclarées dans `.vscode/extensions.json` (VS Code les propose à
+l'ouverture du dossier). Installation en ligne de commande :
+
+```bash
+code --install-extension ms-python.python ms-python.vscode-pylance charliermarsh.ruff \
+  ms-python.debugpy ms-azuretools.vscode-docker ms-kubernetes-tools.vscode-kubernetes-tools \
+  redhat.vscode-yaml github.vscode-github-actions github.vscode-pull-request-github \
+  eamodio.gitlens humao.rest-client bierner.markdown-mermaid timonwong.shellcheck
+```
+
+| Extension | Usage ici |
+|---|---|
+| Python + Pylance + debugpy | autocomplétion, debug de `uvicorn` (`F5`) |
+| Ruff | lint + format à la sauvegarde, mêmes règles que la CI |
+| Docker | construire/voir les conteneurs, `compose.yaml` |
+| Kubernetes | explorer les pods, logs, `k8s/*.yaml` |
+| YAML (Red Hat) | validation des manifests et des workflows |
+| GitHub Actions / Pull Requests | suivre les runs et les PR |
+| GitLens | historique et blame |
+| REST Client | `api.http` : toutes les routes en un clic |
+| Markdown Mermaid | aperçu des schémas du README |
+
+Tâches prêtes à l'emploi : `Ctrl+Shift+P` → *Tasks: Run Task* → `Lint`, `Tests`,
+`Docker: up`, `K8s: apply`, `K8s: port-forward`.
+
+## 10. Dépannage
+
+| Symptôme | Cause / solution |
+|---|---|
+| `ImagePullBackOff` | package GHCR privé → le rendre public, ou `kubectl -n sentiment create secret docker-registry ghcr-pull --docker-server=ghcr.io --docker-username=<user> --docker-password=<PAT>` puis ajouter `imagePullSecrets` au Deployment |
+| Pods API en `CrashLoopBackOff` | `kubectl -n sentiment logs deploy/api` ; souvent `DATABASE_URL` absent ou base pas prête |
+| `/health` renvoie 503 | PostgreSQL injoignable : `kubectl -n sentiment logs deploy/db`, vérifier le Secret |
+| `kubectl apply -k` : `evalsymlink failure … k8s/.env` | copier `k8s/.env.example` en `k8s/.env` |
+| Pas d'IP externe sur le Service | Docker Desktop : `localhost` ; sinon `kubectl port-forward svc/api 8000:80` |
+| HPA affiche `<unknown>` | metrics-server absent (inclus dans Docker Desktop) ; `kubectl top pods -n sentiment` |
+| Alloy en erreur d'authentification | vérifier le token Grafana (`metrics:write`) et l'URL `remote_write` |
+| Rien dans Grafana | métriques visibles après ~1 min ; vérifier `kubectl -n sentiment logs deploy/alloy` |
+| `ModuleNotFoundError: app` | se placer à la racine du dépôt |
+
+## 11. Livrables
+
+- [x] Dépôt public avec Dockerfile, compose, pipeline, manifests, observabilité
+- [x] README de reproduction complète
+- [ ] Rapport PDF (`docs/RAPPORT.md` complété + captures)
+- [ ] Dépôt et rapport envoyés à `Alexis.Bouchendhomme@uphf.fr`

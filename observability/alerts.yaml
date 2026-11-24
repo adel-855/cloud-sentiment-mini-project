@@ -1,0 +1,121 @@
+# Règles d'alerte Grafana (format de provisioning).
+# À importer dans Grafana Cloud : Alerting > Alert rules > New alert rule, en copiant
+# l'expression PromQL et les seuils ci-dessous. Remplacer datasourceUid par l'UID réel
+# du datasource Prometheus (Connections > Data sources > Prometheus > UID).
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: sentiment-api
+    folder: Sentiment API
+    interval: 1m
+    rules:
+      - uid: sentiment-latency-p95
+        title: Latence p95 > 500 ms
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              editorMode: code
+              expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{route="/predict"}[5m])))
+              instant: true
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: C
+              conditions:
+                - evaluator: { type: gt, params: [0.5] }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { type: last, params: [] }
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        isPaused: false
+        labels:
+          severity: warning
+          team: cloud
+        annotations:
+          summary: Latence p95 supérieure à 500 ms sur /predict
+          description: >-
+            La latence p95 dépasse 500 ms depuis 5 minutes. Vérifier FAULT_LATENCY_MS,
+            la charge (HPA) et la base de données.
+
+      - uid: sentiment-error-rate
+        title: Taux d'erreur 5xx > 5 %
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              editorMode: code
+              expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total[5m])), 0.001)
+              instant: true
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: C
+              conditions:
+                - evaluator: { type: gt, params: [0.05] }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { type: last, params: [] }
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        isPaused: false
+        labels:
+          severity: critical
+          team: cloud
+        annotations:
+          summary: Plus de 5 % de réponses 5xx
+          description: >-
+            Le taux d'erreur 5xx dépasse 5 % depuis 5 minutes. Vérifier FAULT_ERROR_RATE,
+            les logs de l'API et la disponibilité de PostgreSQL.
+
+      - uid: sentiment-availability-slo
+        title: Disponibilité sous le SLO 99 %
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: grafanacloud-prom
+            model:
+              editorMode: code
+              expr: 1 - (sum(rate(http_requests_total{status=~"5.."}[1h])) / clamp_min(sum(rate(http_requests_total[1h])), 0.001))
+              instant: true
+              range: false
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              refId: C
+              conditions:
+                - evaluator: { type: lt, params: [0.99] }
+                  operator: { type: and }
+                  query: { params: [A] }
+                  reducer: { type: last, params: [] }
+        noDataState: NoData
+        execErrState: Error
+        for: 10m
+        isPaused: false
+        labels:
+          severity: critical
+          team: cloud
+        annotations:
+          summary: Disponibilité horaire sous 99 %
+          description: >-
+            SLO de disponibilité (99 % sur 1 h) non respecté. Regarder les erreurs 5xx
+            et l'état des pods (kubectl -n sentiment get pods).
