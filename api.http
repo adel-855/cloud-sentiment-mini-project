@@ -1,0 +1,29 @@
+### Variables
+@host = http://localhost:8000
+
+### Page de test
+GET {{host}}/
+
+### Santé complète (application + base)
+GET {{host}}/health
+
+### Liveness (application seule)
+GET {{host}}/health/live
+
+### Prédiction
+POST {{host}}/predict
+Content-Type: application/json
+
+{"text": "Un film magnifique, je le recommande !"}
+
+### Historique
+GET {{host}}/history?limit=5
+
+### Métriques Prometheus
+GET {{host}}/metrics
+
+### Panne simulée : latence (redémarrer l'API avec FAULT_LATENCY_MS=800)
+POST {{host}}/predict
+Content-Type: application/json
+
+{"text": "Test de latence simulée."}

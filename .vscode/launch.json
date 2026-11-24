@@ -1,0 +1,27 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API FastAPI (uvicorn --reload)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"],
+      "jinja": true,
+      "justMyCode": false,
+      "env": {
+        "MODEL_VERSION": "v1",
+        "FAULT_ERROR_RATE": "0",
+        "FAULT_LATENCY_MS": "0"
+      }
+    },
+    {
+      "name": "Pytest (fichier courant)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-v"],
+      "console": "integratedTerminal"
+    }
+  ]
+}
