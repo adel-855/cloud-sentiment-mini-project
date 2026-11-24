@@ -1,29 +1,31 @@
-
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: sentiment_password
-      POSTGRES_DB: sentiment
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentiment_password}
+      POSTGRES_DB: ${POSTGRES_DB:-sentiment}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d sentiment"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-sentiment}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   api:
     build: .
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: postgresql://app:sentiment_password@db:5432/sentiment
-      MODEL_VERSION: v1
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-sentiment_password}@db:5432/${POSTGRES_DB:-sentiment}
+      MODEL_VERSION: ${MODEL_VERSION:-v1}
       MODELS_DIR: /app/models
-      FAULT_ERROR_RATE: "0"
-      FAULT_LATENCY_MS: "0"
+      # Pannes simulées pour tester la supervision (étape 4).
+      FAULT_ERROR_RATE: ${FAULT_ERROR_RATE:-0}
+      FAULT_LATENCY_MS: ${FAULT_LATENCY_MS:-0}
     depends_on:
       db:
         condition: service_healthy
